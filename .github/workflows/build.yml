@@ -1,0 +1,77 @@
+name: Build DZ Cast APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Auto-unzip DZCast_Project.zip if present
+        run: |
+          if [ ! -f "app/build.gradle.kts" ]; then
+            ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1 || true)
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Extracting $ZIP_FILE..."
+              unzip -o "$ZIP_FILE" -d _extracted_tmp
+              if [ -f "_extracted_tmp/app/build.gradle.kts" ]; then
+                cp -rf _extracted_tmp/* .
+              else
+                SUBDIR=$(find _extracted_tmp -maxdepth 2 -name "settings.gradle.kts" -exec dirname {} \; | head -n 1)
+                if [ -n "$SUBDIR" ]; then
+                  cp -rf "$SUBDIR"/* .
+                fi
+              fi
+              rm -rf _extracted_tmp
+            fi
+          fi
+          ls -la
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Debug APK with Gradle 8.7
+        run: |
+          curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp/gradle
+          /tmp/gradle/gradle-8.7/bin/gradle assembleDebug --stacktrace --no-daemon
+
+      - name: Prepare APK
+        run: |
+          mkdir -p release_out
+          cp app/build/outputs/apk/debug/app-debug.apk release_out/DZCast-v1.0-DZ.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DZCast-APK
+          path: release_out/DZCast-v1.0-DZ.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0-${{ github.run_number }}
+          name: DZ Cast v1.0 (Build #${{ github.run_number }})
+          body: |
+            ## DZ Cast 🇩🇿 — البث الجزائري بدون إعلانات
+            - متصفح مدمج لالتقاط فيديوهات الويب مع مانع إعلانات.
+            - بث شاشة الهاتف بجودات قابلة للتخصيص (360p / 480p / 720p / 1080p).
+            - بث الملفات المحلية وقوائم IPTV (M3U) ودعم DLNA ومستقبل الويب.
+          files: release_out/DZCast-v1.0-DZ.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
